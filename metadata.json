@@ -1,0 +1,6 @@
+{
+  "name": "Surya Anugrah Keramik",
+  "description": "Katalog Lengkap Keramik, Granit, Batu Alam, & Sanitary di Jombang - Surya Anugrah Keramik & UD. Khrisna Sakti.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
