@@ -268,6 +268,10 @@ interface DatabaseSchema {
     name: string;
     password?: string;
     role: 'member' | 'admin';
+    district?: string;
+    address?: string;
+    memberType?: string;
+    notes?: string;
     createdAt: string;
   }>;
   orders: Array<any>;
@@ -682,6 +686,138 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 // Get Members List (for Admin)
 app.get('/api/members', (_req: Request, res: Response) => {
   res.json({ members: db.members });
+});
+
+// Create / Input new member (Admin or form input to database & sheets)
+app.post('/api/members', (req: Request, res: Response) => {
+  try {
+    const { name, phone, district, address, memberType, notes, role } = req.body;
+
+    if (!phone || typeof phone !== 'string' || phone.trim().length < 8) {
+      res.status(400).json({ error: 'Nomor HP wajib diisi (minimal 8 digit).' });
+      return;
+    }
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      res.status(400).json({ error: 'Nama member wajib diisi.' });
+      return;
+    }
+
+    const cleanPhone = phone.trim().replace(/[-\s]/g, '');
+    const cleanName = name.trim();
+
+    // Check if phone already registered
+    const existingIndex = db.members.findIndex((m: any) => m.phone === cleanPhone);
+    if (existingIndex > -1) {
+      // Update existing member
+      db.members[existingIndex] = {
+        ...db.members[existingIndex],
+        name: cleanName,
+        district: district?.trim() || db.members[existingIndex].district || '',
+        address: address?.trim() || db.members[existingIndex].address || '',
+        memberType: memberType || db.members[existingIndex].memberType || 'Member Umum',
+        notes: notes?.trim() || db.members[existingIndex].notes || '',
+      };
+      saveDatabase(db);
+      res.json({
+        message: 'Data member berhasil diperbarui di database!',
+        member: db.members[existingIndex],
+      });
+      return;
+    }
+
+    const newMember = {
+      id: `usr-${Date.now()}`,
+      phone: cleanPhone,
+      name: cleanName,
+      role: (role === 'admin' ? 'admin' : 'member') as 'admin' | 'member',
+      district: district?.trim() || '',
+      address: address?.trim() || '',
+      memberType: memberType || 'Member Umum',
+      notes: notes?.trim() || '',
+      createdAt: new Date().toISOString(),
+    };
+
+    db.members.unshift(newMember);
+    saveDatabase(db);
+
+    res.json({
+      message: 'Data member baru berhasil disimpan di database!',
+      member: newMember,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Gagal menyimpan data member: ' + err.message });
+  }
+});
+
+// Delete member
+app.delete('/api/members/:id', (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const prevCount = db.members.length;
+    db.members = db.members.filter((m: any) => m.id !== id);
+    if (db.members.length === prevCount) {
+      res.status(404).json({ error: 'Member tidak ditemukan.' });
+      return;
+    }
+    saveDatabase(db);
+    res.json({ message: 'Member berhasil dihapus dari database.' });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Gagal menghapus member.' });
+  }
+});
+
+// Sync members incoming from Google Sheets
+app.post('/api/members/sync-spreadsheet', (req: Request, res: Response) => {
+  try {
+    const { members } = req.body;
+    if (!Array.isArray(members)) {
+      res.status(400).json({ error: 'Format data member tidak valid.' });
+      return;
+    }
+
+    let addedCount = 0;
+    let updatedCount = 0;
+
+    for (const inMem of members) {
+      const cleanPhone = String(inMem.phone || '').trim().replace(/[-\s]/g, '');
+      if (!cleanPhone) continue;
+
+      const existingIdx = db.members.findIndex((m: any) => m.phone === cleanPhone || (inMem.id && m.id === inMem.id));
+      if (existingIdx > -1) {
+        db.members[existingIdx] = {
+          ...db.members[existingIdx],
+          ...inMem,
+          phone: cleanPhone,
+        };
+        updatedCount++;
+      } else {
+        db.members.push({
+          id: inMem.id || `usr-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          name: inMem.name || `Member ${cleanPhone.slice(-4)}`,
+          phone: cleanPhone,
+          role: inMem.role || 'member',
+          district: inMem.district || '',
+          address: inMem.address || '',
+          memberType: inMem.memberType || 'Member Umum',
+          notes: inMem.notes || '',
+          createdAt: inMem.createdAt || new Date().toISOString(),
+        });
+        addedCount++;
+      }
+    }
+
+    saveDatabase(db);
+    res.json({
+      success: true,
+      addedCount,
+      updatedCount,
+      totalCount: db.members.length,
+      members: db.members,
+      message: `Sinkronisasi member berhasil! ${addedCount} member baru ditambahkan, ${updatedCount} diperbarui.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: 'Gagal sinkronisasi data member: ' + err.message });
+  }
 });
 
 // ==========================================

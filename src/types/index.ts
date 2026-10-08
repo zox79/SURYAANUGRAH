@@ -14,6 +14,10 @@ export interface UserAccount {
   phone: string;
   name: string;
   role: 'member' | 'admin';
+  address?: string;
+  district?: string;
+  memberType?: string;
+  notes?: string;
   createdAt: string;
 }
 
